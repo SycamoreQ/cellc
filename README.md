@@ -6,12 +6,21 @@ cellc is a container runtime from scratch in C . Right now the file descriptions
 
 - namespace.c — everything related to clone() flags, the parent-child synchronization pipe, and the child's namespace setup function that runs after clone().
 
-- utils.c — error handling helpers, logging, small reusable things. Build a good die(const char *fmt, ...) function early that prints an error and exits cleanly — you'll use it everywhere.
+- utils.c — error handling helpers, logging, small reusable things. Build a good die(const char *fmt, ...) function early that prints an error and exits cleanly
+
+- fs.c - it sets up overlayfs for basic copy on write for filesystems and also mounts separate filesystem for each container. This is done by pivoting from host fs to an independent Alpine Linux based fs for lightweight fs.
 
 
-What Done : 
+
+Whats Done : 
 
 - A process running in isolated PID, Mount, UTS, IPC, and Network namespaces
 - Custom hostname set inside UTS namespace without touching the host
 - PID 1 inside the container confirmed
 - Parent-child synchronization pipe working
+- Installed Alpine Linux FS , but only on the read only base layer
+- container has its own isolated filesystem (Alpine, not the host) and its own hostname
+- Copy-on-write semantics via OverlayFS — writes go to upper layer, base Alpine untouched
+
+Whats To Be Done: 
+- cgroups v2 — resource limits. CPU, memory, and PID limits enforced by the kernel.
