@@ -21,6 +21,7 @@ Whats Done :
 - Installed Alpine Linux FS , but only on the read only base layer
 - container has its own isolated filesystem (Alpine, not the host) and its own hostname
 - Copy-on-write semantics via OverlayFS — writes go to upper layer, base Alpine untouched
+- cgroups v2 — resource limits. CPU, memory, and PID limits enforced by the kernel.
 
 Whats To Be Done: 
-- cgroups v2 — resource limits. CPU, memory, and PID limits enforced by the kernel.
+- Error while creating the directory /sys/fs/cgroup/cellc. mkdir failing silently. 

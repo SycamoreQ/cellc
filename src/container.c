@@ -8,75 +8,97 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/mount.h>
+#include <string.h>
+#include <sys/stat.h>
+
 #include "container.h"
-#include <sys/syscall.h>
+#include "cgroups.h"
 #include "fs.h"
-
-
 
 typedef struct {
     char *program;
     char **argv;
-    int read_end; 
-    int write_end; 
-    fs_config_t *fs; 
+    int read_end;
+    int write_end;
+    fs_config_t *fs;
 } child_args_t;
-
-fs_config_t fs_config = {
-    .lower  = "/root/container_fs/alpine",
-    .upper  = "/root/container_fs/upper",
-    .work   = "/root/container_fs/work",
-    .merged = "/root/container_fs/merged"
-};
-
-
 
 int child_fn(void *arg) {
     child_args_t *args = (child_args_t *)arg;
+
+    close(args->write_end);
+
+    char buf;
+    read(args->read_end, &buf, 1);
+    close(args->read_end);
+
     printf("inside container\n");
 
-    close(args -> write_end); 
+    fs_setup_overlay(args->fs);
+    fs_pivot_root(args->fs->merged);
 
-    char buf[100];
-    read(args-> read_end, &buf, 1);
+    // proc
+    mkdir("/proc", 0555);
+    mount("proc", "/proc", "proc", 0, NULL);
 
-    close(args -> read_end);
+    // sys
+    mkdir("/sys", 0555);
+    mount("sysfs", "/sys", "sysfs", 0, NULL);
 
+    // cgroup
+    mkdir("/sys/fs", 0555);
+    mkdir("/sys/fs/cgroup", 0555);
+    mount("none", "/sys/fs/cgroup", "cgroup2", 0, NULL);
+
+    sethostname("container", 9);
 
     char *child_argv[] = { args->program, NULL };
-    fs_setup_overlay(args -> fs); 
-    fs_pivot_root(args -> fs -> merged); 
-    mount("proc", "/proc", "proc", 0, NULL);
-    sethostname("container", 9) ; // sets the hostname inside the UTS (unix time sys) namespace without affecting the host
     execv(args->program, child_argv);
+
     perror("execv failed");
     return 1;
 }
 
 void container_run(char *program) {
-    child_args_t args = { 
-        program, 
-        NULL ,
-        0 , 
-        0 , 
-        &fs_config
-    }; 
+
+    fs_config_t fs_config = {
+        .lower  = "/root/container_fs/alpine",
+        .upper  = "/root/container_fs/upper",
+        .work   = "/root/container_fs/work",
+        .merged = "/root/container_fs/merged"
+    };
+
+    child_args_t args = {
+        program,
+        NULL,
+        0,
+        0,
+        &fs_config,
+    };
 
     int stack_size = 1024 * 1024;
     char *stack = malloc(stack_size);
     char *stack_top = stack + stack_size;
 
-    int flags = CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET | SIGCHLD;
+    int flags = CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS |
+                CLONE_NEWIPC | CLONE_NEWNET | SIGCHLD;
 
     int fd[2];
-    
     if (pipe(fd) == -1) {
-        perror("Pipe creation failed");
-        exit(EXIT_FAILURE);
+        perror("pipe failed");
+        exit(1);
     }
 
-    args.read_end  = fd[0];   
-    args.write_end = fd[1]; 
+    args.read_end  = fd[0];
+    args.write_end = fd[1];
+
+    cgroup_config_t cgroup_config = {
+        .cgroup_path  = "/sys/fs/cgroup/cellc",
+        .memory_limit = 104857600,
+        .cpu_quota    = 100000,
+        .cpu_period   = 100000,
+        .pids_max     = 32
+    };
 
     pid_t pid = clone(child_fn, stack_top, flags, &args);
     if (pid == -1) {
@@ -85,11 +107,15 @@ void container_run(char *program) {
         return;
     }
 
-    close(fd[0]); 
-    char message[] = "\0";
-    write(fd[1], message, sizeof(message));
+    // host configures cgroup
+    cgroups_setup(pid, &cgroup_config);
+
+    close(fd[0]);
+    write(fd[1], "", 1);
     close(fd[1]);
 
     waitpid(pid, NULL, 0);
+
+    cgroups_cleanup();
     free(stack);
 }
