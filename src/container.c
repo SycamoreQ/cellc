@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <sys/mount.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/stat.h>
 
 #include "container.h"
@@ -59,6 +60,34 @@ int child_fn(void *arg) {
     return 1;
 }
 
+void set_map(char* file, int inside_id, int outside_id, int len) {
+    FILE* mapfd = fopen(file, "w");
+    if (mapfd == NULL) {
+        perror("open map file failed");
+        return;
+    }
+    fprintf(mapfd, "%d %d %d", inside_id, outside_id, len);
+    fclose(mapfd);
+}
+
+void setup_user_ns(pid_t pid) {
+    char path[PATH_MAX];
+    
+    // Map UID 0 inside to current UID outside
+    sprintf(path, "/proc/%d/uid_map", pid);
+    set_map(path, 0, getuid(), 1);
+
+    // Deny setgroups (required before mapping GID in many kernels)
+    sprintf(path, "/proc/%d/setgroups", pid);
+    int fd = open(path, O_WRONLY);
+    write(fd, "deny", 4);
+    close(fd);
+
+    // Map GID 0 inside to your current GID outside
+    sprintf(path, "/proc/%d/gid_map", pid);
+    set_map(path, 0, getgid(), 1);
+}
+
 void container_run(char *program) {
 
     fs_config_t fs_config = {
@@ -81,7 +110,7 @@ void container_run(char *program) {
     char *stack_top = stack + stack_size;
 
     int flags = CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS |
-                CLONE_NEWIPC | CLONE_NEWNET | SIGCHLD;
+                CLONE_NEWIPC | CLONE_NEWNET | CLONE_NEWCGROUP | SIGCHLD;
 
     int fd[2];
     if (pipe(fd) == -1) {
@@ -100,12 +129,14 @@ void container_run(char *program) {
         .pids_max     = 32
     };
 
-    pid_t pid = clone(child_fn, stack_top, flags, &args);
+    pid_t pid = clone(child_fn, stack_top, flags | CLONE_NEWUSER, &args);
     if (pid == -1) {
         perror("clone failed");
         free(stack);
         return;
     }
+
+    setup_user_ns(pid);
 
     // host configures cgroup
     cgroups_setup(pid, &cgroup_config);
