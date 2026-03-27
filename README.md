@@ -24,4 +24,4 @@ Whats Done :
 - cgroups v2 — resource limits. CPU, memory, and PID limits enforced by the kernel.
 
 Whats To Be Done: 
-- Error while creating the directory /sys/fs/cgroup/cellc. mkdir failing silently. 
+- configure veth and network namespaces using netns. Working on cachyOs. 
