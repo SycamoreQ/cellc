@@ -54,6 +54,7 @@ int child_fn(void *arg) {
     sethostname("container", 9);
 
     char *child_argv[] = { args->program, NULL };
+    setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
     execv(args->program, child_argv);
 
     perror("execv failed");
