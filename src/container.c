@@ -15,6 +15,7 @@
 #include "container.h"
 #include "cgroups.h"
 #include "fs.h"
+#include "net.h"
 
 typedef struct {
     char *program;
@@ -26,38 +27,50 @@ typedef struct {
 
 int child_fn(void *arg) {
     child_args_t *args = (child_args_t *)arg;
-
     close(args->write_end);
 
+    // Wait for host to finish cgroups/net_setup_host
     char buf;
     read(args->read_end, &buf, 1);
     close(args->read_end);
 
     printf("inside container\n");
 
-    fs_setup_overlay(args->fs);
-    fs_pivot_root(args->fs->merged);
+    if (mount(NULL , "/" , NULL , MS_REC | MS_PRIVATE , NULL) == -1){
+        perror("make root private failed");
+        return 1;
+    }
 
-    // proc
+    printf("setting up overlay...\n");
+    if (fs_setup_overlay(args->fs) < 0) {
+        printf("overlay failed\n");
+        return 1;
+    }
+    printf("overlay done, pivoting root...\n");
+    if (fs_pivot_root(args->fs->merged) < 0) {
+        printf("pivot_root failed\n");
+        return 1;
+    }
+    printf("pivot_root done\n");
+
+    // 2. Mount proc FIRST (Required for network indexing)
     mkdir("/proc", 0555);
-    mount("proc", "/proc", "proc", 0, NULL);
+    if (mount("proc", "/proc", "proc", 0, NULL) < 0) {
+        perror("proc mount failed");
+    }
 
-    // sys
+    //setup network
+    int net_rs = net_setup_container();
+    printf("net_setup_container returned: %d\n" , net_rs);
+
+    // 4. Rest of the isolation
     mkdir("/sys", 0555);
     mount("sysfs", "/sys", "sysfs", 0, NULL);
-
-    // cgroup
-    mkdir("/sys/fs", 0555);
-    mkdir("/sys/fs/cgroup", 0555);
-    mount("none", "/sys/fs/cgroup", "cgroup2", 0, NULL);
-
+    
     sethostname("container", 9);
 
     char *child_argv[] = { args->program, NULL };
-    setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
     execv(args->program, child_argv);
-
-    perror("execv failed");
     return 1;
 }
 
@@ -130,17 +143,19 @@ void container_run(char *program) {
         .pids_max     = 32
     };
 
-    pid_t pid = clone(child_fn, stack_top, flags | CLONE_NEWUSER, &args);
+    pid_t pid = clone(child_fn, stack_top, flags, &args);
     if (pid == -1) {
         perror("clone failed");
         free(stack);
         return;
     }
 
-    setup_user_ns(pid);
 
     // host configures cgroup
-    cgroups_setup(pid, &cgroup_config);
+    if (cgroups_setup(pid, &cgroup_config) < 0){
+        fprintf(stderr , "cgroup setup failed , continuing anyway");
+    }
+    net_setup_host(pid);
 
     close(fd[0]);
     write(fd[1], "", 1);
@@ -149,5 +164,6 @@ void container_run(char *program) {
     waitpid(pid, NULL, 0);
 
     cgroups_cleanup();
+    net_cleanup();
     free(stack);
 }

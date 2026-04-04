@@ -1,9 +1,11 @@
-#ifndef net.h
-#define net.h 
+#ifndef net
+#define net
 
-int netlink_open(); 
+#include <sys/types.h>
 
-int netlink_send(int fd , char[] msg , long len); 
+int net_setup_host(pid_t pid);
+int net_setup_container(void);
+void net_cleanup(void);
 
 
 #endif

@@ -65,13 +65,17 @@ static void netlink_add_attr(struct nlmsghdr *nlh, int type, void *data, int len
 }
 
 int net_setup_host(pid_t pid) {
+    printf("net_setup_host called with pid %d\n" , pid);
+    fflush(stdout);
     int sock = netlink_open();
+    printf("netlink socket %d\n" , sock);
+    fflush(stdout);
     if (sock < 0) return -1;
 
     char buf[4096];
     struct nlmsghdr *nlh;
 
-    /*Create veth pair */ 
+    /* Message 1: Create veth pair (both on host, no namespace move yet) */
     memset(buf, 0, sizeof(buf));
     nlh = (struct nlmsghdr *)buf;
     nlh->nlmsg_type  = RTM_NEWLINK;
@@ -83,33 +87,51 @@ int net_setup_host(pid_t pid) {
     struct ifinfomsg *ifm = NLMSG_DATA(nlh);
     ifm->ifi_family = AF_UNSPEC;
 
-    // veth0 name
     netlink_add_attr(nlh, IFLA_IFNAME, "veth0", 6);
 
-    // open IFLA_LINKINFO
     struct rtattr *linkinfo = (struct rtattr *)((char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len));
     netlink_add_attr(nlh, IFLA_LINKINFO, NULL, 0);
 
     netlink_add_attr(nlh, IFLA_INFO_KIND, "veth", 5);
 
-    // open IFLA_INFO_DATA
     struct rtattr *infodata = (struct rtattr *)((char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len));
     netlink_add_attr(nlh, IFLA_INFO_DATA, NULL, 0);
 
-    // open VETH_INFO_PEER
     struct rtattr *peer = (struct rtattr *)((char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len));
     netlink_add_attr(nlh, VETH_INFO_PEER, NULL, 0);
 
-    // peer needs its own ifinfomsg header
     struct ifinfomsg peer_ifm = { .ifi_family = AF_UNSPEC };
     void *payload = (char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len);
     memcpy(payload, &peer_ifm, sizeof(peer_ifm));
     nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + sizeof(peer_ifm);
 
-    // veth1 name inside peer
     netlink_add_attr(nlh, IFLA_IFNAME, "veth1", 6);
 
-    // move veth1 into container namespace
+    peer->rta_len     = (char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len) - (char *)peer;
+    infodata->rta_len = (char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len) - (char *)infodata;
+    linkinfo->rta_len = (char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len) - (char *)linkinfo;
+
+    if (netlink_send(sock, buf, nlh->nlmsg_len) < 0) {
+        fprintf(stderr, "veth pair creation failed\n");
+        close(sock);
+        return -1;
+    }
+    printf("message 1 OK: veth pair created\n");
+
+    /* Message 2: Move veth1 into container network namespace */
+    memset(buf, 0, sizeof(buf));
+    nlh = (struct nlmsghdr *)buf;
+    nlh->nlmsg_type  = RTM_NEWLINK;
+    nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+    nlh->nlmsg_seq   = 2;
+    nlh->nlmsg_pid   = 0;
+    nlh->nlmsg_len   = NLMSG_LENGTH(sizeof(struct ifinfomsg));
+
+    struct ifinfomsg *ifm2 = NLMSG_DATA(nlh);
+    ifm2->ifi_family = AF_UNSPEC;
+
+    netlink_add_attr(nlh, IFLA_IFNAME, "veth1", 6);
+
     char ns_path[64];
     snprintf(ns_path, sizeof(ns_path), "/proc/%d/ns/net", pid);
     int ns_fd = open(ns_path, O_RDONLY);
@@ -119,27 +141,21 @@ int net_setup_host(pid_t pid) {
         return -1;
     }
     netlink_add_attr(nlh, IFLA_NET_NS_FD, &ns_fd, sizeof(int));
-    close(ns_fd);
-
-    // close VETH_INFO_PEER
-    peer->rta_len = (char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len) - (char *)peer;
-    // close IFLA_INFO_DATA
-    infodata->rta_len = (char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len) - (char *)infodata;
-    // close IFLA_LINKINFO
-    linkinfo->rta_len = (char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len) - (char *)linkinfo;
 
     if (netlink_send(sock, buf, nlh->nlmsg_len) < 0) {
-        fprintf(stderr, "veth creation failed\n");
+        fprintf(stderr, "moving veth1 to container ns failed\n");
         close(sock);
         return -1;
     }
 
-    /*Assign IP to veth0*/
+    printf("message 2 OK: veth1 moved to container ns\n");
+
+    /* Message 3: Assign IP 10.0.0.1/24 to veth0 */
     memset(buf, 0, sizeof(buf));
     nlh = (struct nlmsghdr *)buf;
     nlh->nlmsg_type  = RTM_NEWADDR;
     nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_ACK;
-    nlh->nlmsg_seq   = 2;
+    nlh->nlmsg_seq   = 3;
     nlh->nlmsg_pid   = 0;
     nlh->nlmsg_len   = NLMSG_LENGTH(sizeof(struct ifaddrmsg));
 
@@ -154,17 +170,21 @@ int net_setup_host(pid_t pid) {
     netlink_add_attr(nlh, IFA_ADDRESS, &host_addr, sizeof(host_addr));
 
     if (netlink_send(sock, buf, nlh->nlmsg_len) < 0) {
-        fprintf(stderr, "IP assignment failed\n");
+        fprintf(stderr, "IP assignment to veth0 failed\n");
         close(sock);
         return -1;
     }
 
-    /*Bring veth0 up*/
+    printf("message 3 OK: IP assigned to veth0\n");
+
+    close(ns_fd);
+
+    /* Message 4: Bring veth0 up */
     memset(buf, 0, sizeof(buf));
     nlh = (struct nlmsghdr *)buf;
     nlh->nlmsg_type  = RTM_NEWLINK;
     nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
-    nlh->nlmsg_seq   = 3;
+    nlh->nlmsg_seq   = 4;
     nlh->nlmsg_pid   = 0;
     nlh->nlmsg_len   = NLMSG_LENGTH(sizeof(struct ifinfomsg));
 
@@ -180,7 +200,9 @@ int net_setup_host(pid_t pid) {
         return -1;
     }
 
-    /*IP forwarding + NAT*/
+    printf("message 4 OK: veth0 up\n");
+
+    /* IP forwarding + NAT */
     int fwd_fd = open("/proc/sys/net/ipv4/ip_forward", O_WRONLY);
     if (fwd_fd >= 0) {
         write(fwd_fd, "1", 1);
@@ -196,48 +218,59 @@ void net_cleanup(void) {
     system("iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -j MASQUERADE");
 }
 
-int net_setup_container(void) {
-    return 0;
-}
 
-void netlink_setup_container(int nl_sock, const char *container_ip, const char *gateway_ip) {
+int net_setup_container(void) {
     char buf[4096];
     struct nlmsghdr *nlh = (struct nlmsghdr *)buf;
+
+    int sock = netlink_open();
+    if (sock < 0) return -1;
 
     //loopback and veth1 up 
     const char *ifs[] = {"lo", "veth1"};
     for (int i = 0; i < 2; i++) {
         memset(buf, 0, sizeof(buf));
+        nlh = (struct nlmsghdr *)buf;
         nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
         nlh->nlmsg_type = RTM_NEWLINK;
         nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+        nlh->nlmsg_seq = 1;
+        nlh->nlmsg_pid = 0 ; 
         struct ifinfomsg *ifm = (struct ifinfomsg *)NLMSG_DATA(nlh);
         ifm->ifi_index = if_nametoindex(ifs[i]);
         ifm->ifi_flags = IFF_UP;
         ifm->ifi_change = IFF_UP;
-        send(nl_sock, nlh, nlh->nlmsg_len, 0);
+        netlink_send(sock , buf , nlh->nlmsg_len);
     }
 
     //assign ip to veth1
     int veth1_idx = if_nametoindex("veth1");
     memset(buf, 0, sizeof(buf));
+    nlh = (struct nlmsghdr *)buf;
     nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg));
     nlh->nlmsg_type = RTM_NEWADDR;
     nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_ACK;
+    nlh->nlmsg_seq = 1;
+    nlh->nlmsg_pid = 0 ;
     struct ifaddrmsg *ifa = (struct ifaddrmsg *)NLMSG_DATA(nlh);
     ifa->ifa_family = AF_INET;
     ifa->ifa_prefixlen = 24;
     ifa->ifa_index = veth1_idx;
     struct in_addr c_addr;
-    inet_pton(AF_INET, container_ip, &c_addr);
-    netlink_add_attr(nlh, sizeof(buf), IFA_LOCAL, &c_addr, sizeof(c_addr));
-    send(nl_sock, nlh, nlh->nlmsg_len, 0);
+    inet_pton(AF_INET, "10.0.0.2", &c_addr);
+    netlink_add_attr(nlh, IFA_LOCAL, &c_addr, sizeof(c_addr));
+    netlink_add_attr(nlh , IFA_ADDRESS , &c_addr , sizeof(c_addr));
+    netlink_send(sock , buf , nlh->nlmsg_len);
+
 
     //default route
     memset(buf, 0, sizeof(buf));
+    nlh = (struct nlmsghdr *)buf;
     nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
     nlh->nlmsg_type = RTM_NEWROUTE;
     nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_ACK;
+    nlh->nlmsg_seq = 1;
+    nlh->nlmsg_pid = 0 ;
     struct rtmsg *rtm = (struct rtmsg *)NLMSG_DATA(nlh);
     rtm->rtm_family = AF_INET;
     rtm->rtm_table = RT_TABLE_MAIN;
@@ -247,9 +280,11 @@ void netlink_setup_container(int nl_sock, const char *container_ip, const char *
     rtm->rtm_dst_len = 0; // Default route mask /0
 
     struct in_addr gw;
-    inet_pton(AF_INET, gateway_ip, &gw);
-    netlink_add_attr(nlh, sizeof(buf), RTA_GATEWAY, &gw, sizeof(gw));
-    netlink_add_attr(nlh, sizeof(buf), RTA_OIF, &veth1_idx, sizeof(int));
+    inet_pton(AF_INET, "10.0.0.1", &gw);
+    netlink_add_attr(nlh, RTA_GATEWAY, &gw, sizeof(gw));
+    netlink_add_attr(nlh, RTA_OIF, &veth1_idx, sizeof(int));
 
-    send(nl_sock, nlh, nlh->nlmsg_len, 0);
+    netlink_send(sock , buf , nlh->nlmsg_len);
+    close(sock);
+    return 0;
 }

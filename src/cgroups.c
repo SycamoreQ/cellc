@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include "cgroups.h"
+#include <sys/mount.h>
 
 static int cgroup_write(const char *path, const char *value) {
     int fd = open(path, O_WRONLY);
@@ -26,11 +27,17 @@ static int cgroup_write(const char *path, const char *value) {
     return 0;
 }
 
-void cgroups_setup(pid_t pid, cgroup_config_t *config) {
+int cgroups_setup(pid_t pid, cgroup_config_t *config) {
+
+    rmdir("/sys/fs/cgroup/cellc");
+
+    if (access("/sys/fs/cgroup/cgroup.controllers" , F_OK) != 0){
+        mount("none" , "/sys/fs/cgroup" , "cgroup2" , 0 , NULL);
+    }
 
     if (mkdir("/sys/fs/cgroup/cellc", 0755) == -1 && errno != EEXIST) {
         perror("mkdir failed");
-        exit(1);
+        return -1;
     }
 
     char mem_str[32];
@@ -53,8 +60,13 @@ void cgroups_setup(pid_t pid, cgroup_config_t *config) {
     char pid_str[32];
     snprintf(pid_str, sizeof(pid_str), "%d", pid);
 
-    if (cgroup_write("/sys/fs/cgroup/cellc/cgroup.procs", pid_str) == -1)
+    if (cgroup_write("/sys/fs/cgroup/cellc/cgroup.procs", pid_str) == -1){
         fprintf(stderr, "attach pid failed\n");
+    }
+
+    return 0;
+
+    
 }
 
 void cgroups_cleanup() {

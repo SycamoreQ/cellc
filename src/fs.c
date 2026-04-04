@@ -18,6 +18,7 @@
 //lowerdir=/path/to/alpine, upperdir=/path/to/upper, workdir=/path/to/work
 
 int fs_setup_overlay(fs_config_t *config) {
+    umount2(config->merged , MNT_DETACH);
     char str_buf[1024];
 
     snprintf(str_buf, sizeof(str_buf), "lowerdir=%s,upperdir=%s,workdir=%s",

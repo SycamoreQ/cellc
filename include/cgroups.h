@@ -16,7 +16,7 @@ typedef struct {
     long  pids_max;              
 } cgroup_config_t;
 
-void cgroups_setup(pid_t pid , cgroup_config_t *config); 
+int cgroups_setup(pid_t pid , cgroup_config_t *config); 
 
 void cgroups_cleanup(); 
 
