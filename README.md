@@ -22,6 +22,7 @@ Whats Done :
 - container has its own isolated filesystem (Alpine, not the host) and its own hostname
 - Copy-on-write semantics via OverlayFS — writes go to upper layer, base Alpine untouched
 - cgroups v2 — resource limits. CPU, memory, and PID limits enforced by the kernel.
+- configure veth and network namespaces using netns. 
 
 Whats To Be Done: 
-- configure veth and network namespaces using netns. Working on cachyOs. 
+- run CLI to set up docker like features like image pull , ps , kill and so on. 
