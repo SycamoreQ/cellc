@@ -26,6 +26,15 @@ typedef struct {
 } child_args_t;
 
 int child_fn(void *arg) {
+
+    char *envp[] = {
+    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "HOME=/root",
+    "TERM=xterm",
+    NULL
+    };
+    
+    execve(args->program, child_argv, envp);
     child_args_t *args = (child_args_t *)arg;
     close(args->write_end);
 
