@@ -26,60 +26,59 @@ typedef struct {
 } child_args_t;
 
 int child_fn(void *arg) {
-
-    char *envp[] = {
-    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    "HOME=/root",
-    "TERM=xterm",
-    NULL
-    };
-    
-    execve(args->program, child_argv, envp);
     child_args_t *args = (child_args_t *)arg;
+
+    //block and wait for the host to finish its setup
+    char buf;
+    if (read(args->read_end, &buf, 1) < 0) {
+        perror("Sync read failed");
+        return 1;
+    }
+    close(args->read_end);
     close(args->write_end);
 
-    // Wait for host to finish cgroups/net_setup_host
-    char buf;
-    read(args->read_end, &buf, 1);
-    close(args->read_end);
-
-    printf("inside container\n");
-
-    if (mount(NULL , "/" , NULL , MS_REC | MS_PRIVATE , NULL) == -1){
+    //Setup mounts and filesystem
+    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) == -1) {
         perror("make root private failed");
         return 1;
     }
 
-    printf("setting up overlay...\n");
     if (fs_setup_overlay(args->fs) < 0) {
-        printf("overlay failed\n");
+        fprintf(stderr, "overlay failed\n");
         return 1;
     }
-    printf("overlay done, pivoting root...\n");
+
     if (fs_pivot_root(args->fs->merged) < 0) {
-        printf("pivot_root failed\n");
+        fprintf(stderr, "pivot_root failed\n");
         return 1;
     }
-    printf("pivot_root done\n");
 
-    // 2. Mount proc FIRST (Required for network indexing)
+    //Mount special filesystems
     mkdir("/proc", 0555);
-    if (mount("proc", "/proc", "proc", 0, NULL) < 0) {
-        perror("proc mount failed");
-    }
+    mount("proc", "/proc", "proc", 0, NULL);
 
-    //setup network
-    int net_rs = net_setup_container();
-    printf("net_setup_container returned: %d\n" , net_rs);
-
-    // 4. Rest of the isolation
     mkdir("/sys", 0555);
     mount("sysfs", "/sys", "sysfs", 0, NULL);
-    
-    sethostname("container", 9);
 
+    sethostname("cellc-container", 15);
+
+    //Finalize container-side network
+    net_setup_container();
+
+    //Prepare environment and transform
     char *child_argv[] = { args->program, NULL };
-    execv(args->program, child_argv);
+    char *envp[] = {
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME=/root",
+        "TERM=xterm",
+        NULL
+    };
+
+    // Use execve at the VERY END to pass your custom PATH
+    execve(args->program, child_argv, envp);
+
+    // If we reach here, execve failed
+    perror("execve failed");
     return 1;
 }
 

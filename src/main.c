@@ -4,8 +4,15 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>     
+#include <sys/wait.h>   
+#include <sys/stat.h>
+#include <signal.h>     
+#include <sched.h>      
+#include "container.h"
 
 #include "container.h"
+#include "state.h"
 
 void container_exec(const char *container_id, char **argv) {
     //Get the PID of the running container from state files
@@ -56,24 +63,24 @@ void container_exec(const char *container_id, char **argv) {
 int main(int argc, char *argv[]) {
     if (strcmp(argv[1], "run") == 0) {
         // need at least: cellc run <program>
-        if (argc < 3) { print usage; return 1; }
+        if (argc < 3) { printf("container is running"); return 1; }
         container_run(argv[2]);
 
     } else if (strcmp(argv[1], "ps") == 0) {
         state_list();
 
     } else if (strcmp(argv[1], "kill") == 0) {
-        if (argc < 3) { print usage; return 1; }
+        if (argc < 3) { printf("get state pid"); return 1; }
         // get pid from state, send SIGKILL
         pid_t pid = state_get_pid(argv[2]);
         kill(pid, SIGKILL);
 
     } else if (strcmp(argv[1], "exec") == 0) {
-        if (argc < 4) { print usage; return 1; }
-        container_exec(argv[2], argv[3]);
+        if (argc < 4) { printf("execute container with image"); return 1; }
+        container_exec(argv[2], &argv[3]);
 
     } else {
-        print usage;
+        printf("error?");
         return 1;
     }
 }

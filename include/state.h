@@ -1,7 +1,7 @@
-#ifndef state 
-#define state
+#ifndef STATE_H
+#define STATE_H
 
-#define STATE_DIR = "/run/cellc/containers"
+#define STATE_DIR "/run/cellc/containers"
 #define MAX_PATH 512 
 
 
@@ -18,4 +18,4 @@ int state_list();
 int state_get_pid(const char *container_id );
 void state_cleanup(const char *container_id );
 
-#endif state 
+#endif 

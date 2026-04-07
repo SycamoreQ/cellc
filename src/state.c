@@ -14,9 +14,10 @@
 #include <linux/rtnetlink.h>
 #include <linux/veth.h>
 #include <linux/if_link.h>
+#include <sys/stat.h>
 #include <linux/if_addr.h>
 #include "net.h"
-
+#include "state.h"
 
 void state_create(const char *container_id, pid_t pid, const char *program) {
     char path[MAX_PATH];
