@@ -61,26 +61,34 @@ void container_exec(const char *container_id, char **argv) {
 }
 
 int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        printf("Usage: ./cellc <command> [args...]\n");
+        return 1;
+    }
+
     if (strcmp(argv[1], "run") == 0) {
-        // need at least: cellc run <program>
-        if (argc < 3) { printf("container is running"); return 1; }
-        container_run(argv[2]);
+        if (argc < 4) { 
+            printf("Usage: ./cellc run <id> <program>\n"); 
+            return 1; 
+        }
+        container_run(argv[2], argv[3]);
 
     } else if (strcmp(argv[1], "ps") == 0) {
         state_list();
 
     } else if (strcmp(argv[1], "kill") == 0) {
-        if (argc < 3) { printf("get state pid"); return 1; }
-        // get pid from state, send SIGKILL
+        if (argc < 3) { printf("Usage: ./cellc kill <id>\n"); return 1; }
         pid_t pid = state_get_pid(argv[2]);
-        kill(pid, SIGKILL);
+        if (pid > 0) kill(pid, SIGKILL);
 
     } else if (strcmp(argv[1], "exec") == 0) {
-        if (argc < 4) { printf("execute container with image"); return 1; }
+        if (argc < 4) { printf("Usage: ./cellc exec <id> <program>\n"); return 1; }
         container_exec(argv[2], &argv[3]);
 
     } else {
-        printf("error?");
+        printf("Unknown command: %s\n", argv[1]);
         return 1;
     }
+
+    return 0;
 }

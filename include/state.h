@@ -14,7 +14,7 @@ typedef struct {
 
 void state_create(const char *container_id , pid_t pid , const char *program);
 void state_update(const char *container_id , const char *status);
-int state_list(); 
+void state_list(); 
 int state_get_pid(const char *container_id );
 void state_cleanup(const char *container_id );
 

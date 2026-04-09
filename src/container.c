@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <sys/mount.h>
 #include <string.h>
+
 #include <limits.h>
 #include <sys/stat.h>
 
@@ -16,6 +17,7 @@
 #include "cgroups.h"
 #include "fs.h"
 #include "net.h"
+#include "state.h"
 
 typedef struct {
     char *program;
@@ -110,13 +112,18 @@ void setup_user_ns(pid_t pid) {
     set_map(path, 0, getgid(), 1);
 }
 
-void container_run(char *program) {
+void container_run(char *program , const char *container_id) {
+
+    snprintf(lower,  MAX_PATH, "/root/container_fs/%s/alpine", container_id);
+    snprintf(upper,  MAX_PATH, "/root/container_fs/%s/upper",  container_id);
+    snprintf(work,   MAX_PATH, "/root/container_fs/%s/work",   container_id);
+    snprintf(merged, MAX_PATH, "/root/container_fs/%s/merged", container_id);
 
     fs_config_t fs_config = {
-        .lower  = "/root/container_fs/alpine",
-        .upper  = "/root/container_fs/upper",
-        .work   = "/root/container_fs/work",
-        .merged = "/root/container_fs/merged"
+        .lower  = lower,
+        .upper  = upper,
+        .work   = work,
+        .merged = merged
     };
 
     child_args_t args = {
@@ -158,6 +165,15 @@ void container_run(char *program) {
         return;
     }
 
+    if (net_setup_host(pid, container_id) < 0) {
+        fprintf(stderr, "Network setup failed\n");
+    }
+    
+    state_create(container_id, pid, program);
+    state_update(container_id, "running");
+
+
+
 
     // host configures cgroup
     if (cgroups_setup(pid, &cgroup_config) < 0){
@@ -170,6 +186,8 @@ void container_run(char *program) {
     close(fd[1]);
 
     waitpid(pid, NULL, 0);
+    state_create(container_id, pid, program);
+    state_update(container_id, "running");
 
     cgroups_cleanup();
     net_cleanup();

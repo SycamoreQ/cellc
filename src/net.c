@@ -64,7 +64,13 @@ static void netlink_add_attr(struct nlmsghdr *nlh, int type, void *data, int len
     nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + RTA_ALIGN(RTA_LENGTH(len));
 }
 
-int net_setup_host(pid_t pid) {
+int net_setup_host(pid_t pid , const char *container_id) {
+    char veth_host[IFNAMSIZ];
+    char veth_child[IFNAMSIZ];
+
+    snprintf(veth_host, IFNAMSIZ, "vH_%s", container_id);
+    snprintf(veth_child, IFNAMSIZ, "vC_%s", container_id);
+
     printf("net_setup_host called with pid %d\n" , pid);
     fflush(stdout);
     int sock = netlink_open();
@@ -87,7 +93,7 @@ int net_setup_host(pid_t pid) {
     struct ifinfomsg *ifm = NLMSG_DATA(nlh);
     ifm->ifi_family = AF_UNSPEC;
 
-    netlink_add_attr(nlh, IFLA_IFNAME, "veth0", 6);
+    netlink_add_attr(nlh, IFLA_IFNAME, veth_host, strlen(veth_host) + 1);
 
     struct rtattr *linkinfo = (struct rtattr *)((char *)nlh + NLMSG_ALIGN(nlh->nlmsg_len));
     netlink_add_attr(nlh, IFLA_LINKINFO, NULL, 0);
@@ -130,7 +136,7 @@ int net_setup_host(pid_t pid) {
     struct ifinfomsg *ifm2 = NLMSG_DATA(nlh);
     ifm2->ifi_family = AF_UNSPEC;
 
-    netlink_add_attr(nlh, IFLA_IFNAME, "veth1", 6);
+    netlink_add_attr(nlh, IFLA_IFNAME, veth_child, strlen(veth_child) + 1);
 
     char ns_path[64];
     snprintf(ns_path, sizeof(ns_path), "/proc/%d/ns/net", pid);

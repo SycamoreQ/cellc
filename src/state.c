@@ -12,9 +12,11 @@
 #include <sys/socket.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <signal.h>
 #include <linux/veth.h>
 #include <linux/if_link.h>
 #include <sys/stat.h>
+#include <dirent.h> // Required for opendir and readdir
 #include <linux/if_addr.h>
 #include "net.h"
 #include "state.h"
@@ -81,4 +83,42 @@ void state_cleanup(const char *container_id) {
     }
 }
 
+
+void state_list() {
+    DIR *d = opendir(STATE_DIR);
+    if (!d) {
+        printf("No containers found (directory %s does not exist).\n", STATE_DIR);
+        return;
+    }
+
+    struct dirent *dir;
+    printf("%-20s %-10s %-10s\n", "CONTAINER ID", "PID", "STATUS");
+    printf("--------------------------------------------------\n");
+
+    while ((dir = readdir(d)) != NULL) {
+        // Skip hidden files like "." and ".."
+        if (dir->d_name[0] == '.') continue;
+
+        pid_t pid = state_get_pid(dir->d_name);
+        
+        // Read status from the status file
+        char status[32] = "unknown";
+        char s_path[MAX_PATH];
+        snprintf(s_path, sizeof(s_path), "%s/%s/status", STATE_DIR, dir->d_name);
+        
+        FILE *sf = fopen(s_path, "r");
+        if (sf) {
+            if (fscanf(sf, "%31s", status) != 1) strcpy(status, "error");
+            fclose(sf);
+        }
+
+        // Liveness check: If the process is gone, mark it as exited
+        if (pid > 0 && kill(pid, 0) != 0) {
+            strcpy(status, "stopped");
+        }
+
+        printf("%-20s %-10d %-10s\n", dir->d_name, pid, status);
+    }
+    closedir(d);
+}
 
