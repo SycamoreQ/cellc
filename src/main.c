@@ -78,10 +78,10 @@ int main(int argc, char *argv[]) {
 
     if (strcmp(argv[1], "run") == 0) {
         if (argc < 4) { 
-            printf("Usage: ./cellc run <id> <program>\n"); 
+            printf("Usage: ./cellc run <id> <program> [args..] \n"); 
             return 1; 
         }
-        container_run(argv[2], argv[3]);
+        container_run(argv[2], &argv[3]);
 
     } else if (strcmp(argv[1], "ps") == 0) {
         state_list();

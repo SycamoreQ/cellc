@@ -2,7 +2,7 @@
 #define STATE_H
 
 
-#define MAX_PATH 512
+#define MAX_PATH 1024
 #define STATE_DIR "/run/cellc/containers"
 
 

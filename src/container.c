@@ -59,6 +59,9 @@ int child_fn(void *arg) {
     mkdir("/proc", 0555);
     mount("proc", "/proc", "proc", 0, NULL);
 
+    mkdir("/dev", 0755);
+    mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
+
     mkdir("/sys", 0555);
     mount("sysfs", "/sys", "sysfs", 0, NULL);
 
@@ -68,7 +71,6 @@ int child_fn(void *arg) {
     net_setup_container();
 
     //Prepare environment and transform
-    char *child_argv[] = { args->program, NULL };
     char *envp[] = {
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME=/root",
@@ -76,8 +78,7 @@ int child_fn(void *arg) {
         NULL
     };
 
-    // Use execve at the VERY END to pass your custom PATH
-    execve(args->program, child_argv, envp);
+    execve(args->program, args->argv, envp);
 
     // If we reach here, execve failed
     perror("execve failed");
@@ -112,7 +113,7 @@ void setup_user_ns(pid_t pid) {
     set_map(path, 0, getgid(), 1);
 }
 
-void container_run(const char *container_id , char *program) {
+void container_run(const char *container_id , char **argv) {
 
 
     fs_config_t fs_config = {
@@ -123,11 +124,11 @@ void container_run(const char *container_id , char *program) {
     };
 
     child_args_t args = {
-        program,
-        NULL,
-        0,
-        0,
-        &fs_config,
+        .program   = argv[0],
+        .argv      = argv,
+        .read_end  = 0,
+        .write_end = 0,
+        .fs        = &fs_config,
     };
 
     int stack_size = 1024 * 1024;
@@ -170,7 +171,7 @@ void container_run(const char *container_id , char *program) {
         fprintf(stderr, "Network setup failed\n");
     }
     
-    state_create(container_id, pid, program);
+    state_create(container_id, pid, args.program);
     state_update(container_id, "running");
 
 

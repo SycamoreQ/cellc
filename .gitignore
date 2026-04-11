@@ -1,0 +1,19 @@
+# compiled binary
+cellc
+
+# benchmark results (raw data, not source)
+benchmark_results/
+
+# container filesystem (large, not source)
+/root/container_fs/
+
+# object files
+*.o
+
+# editor files
+.vscode/
+*.swp
+*.swo
+
+# runtime state
+/run/cellc/
