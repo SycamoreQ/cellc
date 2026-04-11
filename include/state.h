@@ -1,8 +1,9 @@
 #ifndef STATE_H
 #define STATE_H
 
+
+#define MAX_PATH 512
 #define STATE_DIR "/run/cellc/containers"
-#define MAX_PATH 512 
 
 
 typedef struct {

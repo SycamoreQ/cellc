@@ -112,18 +112,14 @@ void setup_user_ns(pid_t pid) {
     set_map(path, 0, getgid(), 1);
 }
 
-void container_run(char *program , const char *container_id) {
+void container_run(const char *container_id , char *program) {
 
-    snprintf(lower,  MAX_PATH, "/root/container_fs/%s/alpine", container_id);
-    snprintf(upper,  MAX_PATH, "/root/container_fs/%s/upper",  container_id);
-    snprintf(work,   MAX_PATH, "/root/container_fs/%s/work",   container_id);
-    snprintf(merged, MAX_PATH, "/root/container_fs/%s/merged", container_id);
 
     fs_config_t fs_config = {
-        .lower  = lower,
-        .upper  = upper,
-        .work   = work,
-        .merged = merged
+        .lower  = "/root/container_fs/alpine_base",
+        .upper  = "/root/container_fs/upper",
+        .work   = "/root/container_fs/work",
+        .merged = "/root/container_fs/merged"
     };
 
     child_args_t args = {
@@ -158,6 +154,11 @@ void container_run(char *program , const char *container_id) {
         .pids_max     = 32
     };
 
+    system("rm -rf /root/container_fs/upper /root/container_fs/work /root/container_fs/merged");
+    mkdir("/root/container_fs/upper", 0755);
+    mkdir("/root/container_fs/work", 0755);
+    mkdir("/root/container_fs/merged", 0755);
+
     pid_t pid = clone(child_fn, stack_top, flags, &args);
     if (pid == -1) {
         perror("clone failed");
@@ -179,17 +180,16 @@ void container_run(char *program , const char *container_id) {
     if (cgroups_setup(pid, &cgroup_config) < 0){
         fprintf(stderr , "cgroup setup failed , continuing anyway");
     }
-    net_setup_host(pid);
 
     close(fd[0]);
     write(fd[1], "", 1);
     close(fd[1]);
 
     waitpid(pid, NULL, 0);
-    state_create(container_id, pid, program);
-    state_update(container_id, "running");
+    state_update(container_id  , "stopped"); 
+    state_cleanup(container_id);
 
     cgroups_cleanup();
-    net_cleanup();
+    net_cleanup(container_id);
     free(stack);
 }

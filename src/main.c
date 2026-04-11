@@ -23,7 +23,7 @@ void container_exec(const char *container_id, char **argv) {
     }
 
     //Define the namespaces to enter
-    const char *namespaces[] = { "mnt", "net", "pid", "uts", "ipc" };
+    const char *namespaces[] = {"ipc" , "uts" , "net" , "pid" , "mnt"};
     char ns_path[256];
 
     for (int i = 0; i < 5; i++) {
@@ -32,6 +32,7 @@ void container_exec(const char *container_id, char **argv) {
         int fd = open(ns_path, O_RDONLY);
         if (fd == -1) {
             perror("Failed to open namespace file");
+            perror(ns_path);
             exit(1);
         }
 
@@ -41,6 +42,11 @@ void container_exec(const char *container_id, char **argv) {
             exit(1);
         }
         close(fd);
+    }
+
+    if (chdir("/") != 0){
+        perror("chdir failed");
+        exit(1);
     }
 
     //The setns(pid_ns) only affects children of the calling process.
@@ -61,6 +67,10 @@ void container_exec(const char *container_id, char **argv) {
 }
 
 int main(int argc, char *argv[]) {
+
+    mkdir("/run/cellc", 0755);
+    mkdir("/run/cellc/containers", 0755);
+    
     if (argc < 2) {
         printf("Usage: ./cellc <command> [args...]\n");
         return 1;
